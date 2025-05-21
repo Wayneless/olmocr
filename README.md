@@ -131,14 +131,11 @@ are difficult to install in an existing python environment, so please do make a 
 conda create -n olmocr python=3.11
 conda activate olmocr
 
-git clone https://github.com/allenai/olmocr.git
-cd olmocr
-
-# For CPU-only operations, ex. running benchmarks
-pip install -e .
+# For CPU-only operations, ex running the benchmark
+pip install olmocr[bench]
 
 # For actually converting the files with your own GPU
-pip install -e .[gpu] --find-links https://flashinfer.ai/whl/cu124/torch2.4/flashinfer/
+pip install olmocr[gpu] --find-links https://flashinfer.ai/whl/cu124/torch2.4/flashinfer/
 ```
 
 ### Local Usage Example
@@ -147,37 +144,38 @@ For quick testing, try the [web demo](https://olmocr.allen.ai/). To run locally,
 
 Convert a Single PDF:
 ```bash
-python -m olmocr.pipeline ./localworkspace --pdfs tests/gnarly_pdfs/horribleocr.pdf
+# Download a sample PDF
+curl -o olmocr-sample.pdf https://olmocr.allenai.org/papers/olmocr_3pg_sample.pdf
+
+# Convert it to markdown
+python -m olmocr.pipeline ./localworkspace --markdown --pdfs olmocr-sample.pdf
 ```
 
 Convert an Image file:
 ```bash
-python -m olmocr.pipeline ./localworkspace --pdfs random_page.png
+python -m olmocr.pipeline ./localworkspace --markdown --pdfs random_page.png
 ```
 
 Convert Multiple PDFs:
 ```bash
-python -m olmocr.pipeline ./localworkspace --pdfs tests/gnarly_pdfs/*.pdf
+python -m olmocr.pipeline ./localworkspace --markdown --pdfs tests/gnarly_pdfs/*.pdf
 ```
-Results will be stored as JSON in `./localworkspace`.
+
+With the addition of the `--markdown` flag, results will be stored as markdown files inside of `./localworkspace/markdown/`. 
 
 #### Viewing Results
 
-Extracted text is stored as [Dolma](https://github.com/allenai/dolma)-style JSONL inside of the `./localworkspace/results` directory.
+The `./localworkspace/` workspace folder will then have both [Dolma](https://github.com/allenai/dolma) and markdown files (if using `--markdown`).
+
 
 ```bash
-cat localworkspace/results/output_*.jsonl
+cat localworkspace/markdown/olmocr-sample.md 
 ```
 
-View results side-by-side with the original PDFs (uses `dolmaviewer` command):
-
-```bash
-python -m olmocr.viewer.dolmaviewer localworkspace/results/output_*.jsonl
-```
-
-Now open `./dolma_previews/tests_gnarly_pdfs_horribleocr_pdf.html` in your favorite browser.
-
-![image](https://github.com/user-attachments/assets/128922d1-63e6-4d34-84f2-d7901237da1f)
+<pre>
+olmOCR: Unlocking Trillions of Tokens in PDFs with Vision Language Models
+...
+</pre>
 
 
 ### Multi-node / Cluster Usage
@@ -238,6 +236,7 @@ options:
   --workers WORKERS     Number of workers to run at a time
   --apply_filter        Apply basic filtering to English pdfs which are not forms, and not likely seo spam
   --stats               Instead of running any job, reports some statistics about the current workspace
+  --markdown            Also write natural text to markdown files preserving the folder structure of the input pdfs
   --model MODEL         List of paths where you can find the model to convert this pdf. You can specify several different paths here, and the script will try to use the
                         one which is fastest to access
   --model_max_context MODEL_MAX_CONTEXT

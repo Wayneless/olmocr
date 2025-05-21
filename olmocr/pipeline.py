@@ -489,33 +489,32 @@ async def worker(args, work_queue: WorkQueue, semaphore, worker_id):
                 # Clean up the temporary file
                 if os.path.exists(temp_path):
                     os.unlink(temp_path)
-                
+
             # If --markdown flag is set, also write the natural text to markdown files
             if args.markdown:
                 logger.info(f"Writing {len(dolma_docs)} markdown files for {work_item.hash}")
                 for doc in dolma_docs:
                     source_file = doc["metadata"]["Source-File"]
                     natural_text = doc["text"]
-                    
+
                     # Create the output markdown path that preserves the folder structure
                     if source_file.startswith("s3://"):
                         # Extract the path after the bucket name for S3 sources
                         parsed = urlparse(source_file)
-                        bucket_name = parsed.netloc
-                        relative_path = parsed.path.lstrip('/')
+                        relative_path = parsed.path.lstrip("/")
                     else:
                         # For local files, use the full path
                         relative_path = source_file
-                    
+
                     # Change the extension to .md
                     md_filename = os.path.splitext(os.path.basename(relative_path))[0] + ".md"
                     # Get the directory path without the filename
                     dir_path = os.path.dirname(relative_path)
-                    
+
                     # Create the output markdown path
                     markdown_dir = os.path.join(args.workspace, "markdown", dir_path)
                     markdown_path = os.path.join(markdown_dir, md_filename)
-                    
+
                     # Create the directory structure if it doesn't exist
                     if markdown_path.startswith("s3://"):
                         # For S3 paths, we'll create a temporary file and upload it
@@ -523,7 +522,7 @@ async def worker(args, work_queue: WorkQueue, semaphore, worker_id):
                             md_tf.write(natural_text)
                             md_tf.flush()
                             md_temp_path = md_tf.name
-                        
+
                         try:
                             md_bucket, md_key = parse_s3_path(markdown_path)
                             workspace_s3.upload_file(md_temp_path, md_bucket, md_key)
