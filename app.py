@@ -7,6 +7,9 @@ from pathlib import Path
 import shutil
 import time
 import re
+import zipfile
+from concurrent.futures import ThreadPoolExecutor
+from tqdm import tqdm
 
 # 创建工作目录
 WORKSPACE_DIR = "olmocr_workspace"
@@ -51,7 +54,7 @@ def modify_html_for_better_display(html_content):
     
     return html_content
 
-def process_pdf(pdf_file):
+def process_pdf(pdf_file, progress=gr.Progress()):
     """处理PDF文件并返回结果"""
     if pdf_file is None:
         return "请上传PDF文件", "", None, None, None
@@ -72,6 +75,7 @@ def process_pdf(pdf_file):
     cmd = ["python", "-m", "olmocr.pipeline", work_dir, "--pdfs", pdf_path]
     
     try:
+        progress(0.2, desc="正在处理PDF...")
         # 执行命令，等待完成
         process = subprocess.run(
             cmd,
@@ -81,6 +85,7 @@ def process_pdf(pdf_file):
             check=True
         )
         
+        progress(0.6, desc="正在生成预览...")
         # 命令输出
         log_text = process.stdout
         
@@ -94,6 +99,7 @@ def process_pdf(pdf_file):
         if not output_files:
             return f"处理完成，但未找到输出文件\n\n日志输出:\n{log_text}", "", None, None, None
         
+        progress(0.8, desc="正在生成下载文件...")
         # 读取JSONL文件
         output_file = output_files[0]
         with open(output_file, "r") as f:
@@ -137,6 +143,7 @@ def process_pdf(pdf_file):
             with open(download_file, "w", encoding="utf-8") as f:
                 f.write(extracted_text)
             
+            progress(1.0, desc="处理完成！")
             return log_text, extracted_text, html_content, df, download_file
         
     except subprocess.CalledProcessError as e:
@@ -144,23 +151,68 @@ def process_pdf(pdf_file):
     except Exception as e:
         return f"处理过程中发生错误: {str(e)}", "", None, None, None
 
+def process_multiple_pdfs(pdf_files, progress=gr.Progress()):
+    """处理多个PDF文件"""
+    if not pdf_files:
+        return "请上传PDF文件", None
+    
+    # 创建批量处理工作目录
+    timestamp = int(time.time())
+    batch_dir = os.path.join(WORKSPACE_DIR, f"batch_{timestamp}")
+    os.makedirs(batch_dir, exist_ok=True)
+    
+    # 创建ZIP文件
+    zip_path = os.path.join(batch_dir, "extracted_texts.zip")
+    with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+        total_files = len(pdf_files)
+        for i, pdf_file in enumerate(pdf_files, 1):
+            progress(i/total_files, desc=f"正在处理第 {i}/{total_files} 个文件...")
+            
+            # 处理单个PDF
+            log_text, extracted_text, _, _, _ = process_pdf(pdf_file)
+            
+            # 获取原始文件名
+            original_filename = os.path.splitext(os.path.basename(pdf_file))[0]
+            
+            # 将提取的文本添加到ZIP文件
+            text_filename = f"{original_filename}_extracted_text.txt"
+            zipf.writestr(text_filename, extracted_text)
+    
+    return "所有文件处理完成！", zip_path
+
 # 创建Gradio界面
 with gr.Blocks(title="olmOCR PDF提取工具") as app:
     gr.Markdown("# olmOCR PDF文本提取工具")
     
     with gr.Row():
         with gr.Column(scale=1):
-            pdf_input = gr.File(label="上传PDF文件", file_types=[".pdf"])
-            process_btn = gr.Button("处理PDF", variant="primary")
+            # 单文件上传
+            with gr.Group():
+                gr.Markdown("### 单文件处理")
+                pdf_input = gr.File(label="上传PDF文件", file_types=[".pdf"])
+                process_btn = gr.Button("处理PDF", variant="primary")
             
-            # 将使用说明移到这里
+            # 批量文件上传
+            with gr.Group():
+                gr.Markdown("### 批量处理")
+                pdf_inputs = gr.File(label="批量上传PDF文件", file_types=[".pdf"], file_count="multiple")
+                batch_process_btn = gr.Button("批量处理", variant="primary")
+                batch_download = gr.File(label="下载所有提取的文本", file_types=[".zip"])
+            
+            # 使用说明
             gr.Markdown("""
             ## 使用说明
-            1. 上传PDF文件
-            2. 点击"处理PDF"按钮
-            3. 等待处理完成
-            4. 查看提取的文本和HTML预览
-            5. 点击下载按钮保存提取的文本
+            1. 单文件处理：
+               - 上传单个PDF文件
+               - 点击"处理PDF"按钮
+               - 查看提取的文本和HTML预览
+               - 点击下载按钮保存提取的文本
+            
+            2. 批量处理：
+               - 上传多个PDF文件
+               - 点击"批量处理"按钮
+               - 等待所有文件处理完成
+               - 下载ZIP文件，包含所有提取的文本
             
             ### 关于HTML预览
             - HTML预览展示原始PDF页面和提取的文本对照
@@ -203,13 +255,19 @@ with gr.Blocks(title="olmOCR PDF提取工具") as app:
     </style>
     """)
     
-    
-    # 绑定按钮事件 - 使用阻塞模式
+    # 绑定按钮事件
     process_btn.click(
         fn=process_pdf,
         inputs=pdf_input,
         outputs=[log_output, text_output, html_output, meta_output, download_btn],
         api_name="process"
+    )
+    
+    batch_process_btn.click(
+        fn=process_multiple_pdfs,
+        inputs=pdf_inputs,
+        outputs=[log_output, batch_download],
+        api_name="batch_process"
     )
 
 # 启动应用
